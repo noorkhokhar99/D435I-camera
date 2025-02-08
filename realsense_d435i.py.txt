@@ -1,0 +1,63 @@
+import pyrealsense2 as rs
+import numpy as np
+import cv2
+
+# Initialize pipeline and configuration
+pipeline = rs.pipeline()
+config = rs.config()
+
+try:
+    # Enable depth stream with reduced resolution and FPS
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+
+    # Start streaming
+    pipeline.start(config)
+    print("Streaming started. Press 'q' to exit.")
+
+    while True:
+        try:
+            # Wait for frames with extended timeout
+            frames = pipeline.wait_for_frames(timeout_ms=15000)
+
+            # Get depth frame
+            depth_frame = frames.get_depth_frame()
+
+            if not depth_frame:
+                print("Depth frame not available. Retrying...")
+                continue
+
+            # Convert depth frame to numpy array
+            depth_image = np.asanyarray(depth_frame.get_data())
+
+            # Get distance at the center of the frame
+            height, width = depth_image.shape
+            center_distance = depth_frame.get_distance(width // 2, height // 2)
+
+            # Draw a circle at the center of the frame
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+            center_point = (width // 2, height // 2)
+            cv2.circle(depth_colormap, center_point, 5, (0, 255, 0), -1)
+
+            # Display distance on the frame
+            cv2.putText(depth_colormap, f"Distance: {center_distance:.2f} meters", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+            # Show the depth frame with distance information
+            cv2.imshow("Depth Frame with Distance", depth_colormap)
+
+            # Print the distance in the terminal
+            print(f"Distance at center: {center_distance:.2f} meters")
+
+            # Exit on 'q' key
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        except RuntimeError as e:
+            print(f"Runtime error while fetching frames: {e}")
+            continue
+
+finally:
+    # Stop the pipeline and close OpenCV windows
+    pipeline.stop()
+    cv2.destroyAllWindows()
+    print("Streaming stopped.")

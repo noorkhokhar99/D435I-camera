@@ -1,0 +1,90 @@
+import pyrealsense2 as rs
+import numpy as np
+import cv2
+
+# Initialize the pipeline and configuration
+pipeline = rs.pipeline()
+config = rs.config()
+
+try:
+    # Enable depth, color, and IMU streams
+    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+    config.enable_stream(rs.stream.accel)
+    config.enable_stream(rs.stream.gyro)
+
+    # Start streaming
+    pipeline.start(config)
+    print("Streaming started. Press 'q' to exit.")
+
+    # Get device intrinsics
+    profile = pipeline.get_active_profile()
+    depth_intrinsics = profile.get_stream(rs.stream.depth).as_video_stream_profile().get_intrinsics()
+    color_intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+
+    print("\nCamera Intrinsics:")
+    print(f"Depth Focal Length: {depth_intrinsics.fx}, {depth_intrinsics.fy}")
+    print(f"Depth Principal Point: {depth_intrinsics.ppx}, {depth_intrinsics.ppy}")
+    print(f"Color Focal Length: {color_intrinsics.fx}, {color_intrinsics.fy}")
+    print(f"Color Principal Point: {color_intrinsics.ppx}, {color_intrinsics.ppy}")
+    print(f"Depth Resolution: {depth_intrinsics.width} x {depth_intrinsics.height}")
+    print(f"Color Resolution: {color_intrinsics.width} x {color_intrinsics.height}")
+
+    while True:
+        try:
+            # Wait for frames
+            frames = pipeline.wait_for_frames(timeout_ms=15000)
+
+            # Get depth, color, and IMU frames
+            depth_frame = frames.get_depth_frame()
+            color_frame = frames.get_color_frame()
+            accel_frame = frames.first_or_default(rs.stream.accel)
+            gyro_frame = frames.first_or_default(rs.stream.gyro)
+
+            if not depth_frame or not color_frame:
+                print("Frames not available. Retrying...")
+                continue
+
+            # Convert depth and color frames to numpy arrays
+            depth_image = np.asanyarray(depth_frame.get_data())
+            color_image = np.asanyarray(color_frame.get_data())
+
+            # Get depth data at specific points
+            height, width = depth_image.shape
+            center_distance = depth_frame.get_distance(width // 2, height // 2)
+
+            # Draw depth and color overlays
+            depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+            cv2.circle(depth_colormap, (width // 2, height // 2), 5, (0, 255, 0), -1)
+            cv2.putText(depth_colormap, f"Center Distance: {center_distance:.2f} meters", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            # Display frames
+            cv2.imshow("Depth Frame", depth_colormap)
+            cv2.imshow("Color Frame", color_image)
+
+            # Display IMU data
+            if accel_frame:
+                accel_data = accel_frame.as_motion_frame().get_motion_data()
+                print(f"Accelerometer: X={accel_data.x:.3f}, Y={accel_data.y:.3f}, Z={accel_data.z:.3f}")
+
+            if gyro_frame:
+                gyro_data = gyro_frame.as_motion_frame().get_motion_data()
+                print(f"Gyroscope: X={gyro_data.x:.3f}, Y={gyro_data.y:.3f}, Z={gyro_data.z:.3f}")
+
+            # Print Depth Statistics
+            print(f"Depth at Center (meters): {center_distance:.2f}")
+
+            # Exit on 'q' key
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        except RuntimeError as e:
+            print(f"Runtime error: {e}")
+            continue
+
+finally:
+    # Stop streaming and close windows
+    pipeline.stop()
+    cv2.destroyAllWindows()
+    print("Streaming stopped.")
